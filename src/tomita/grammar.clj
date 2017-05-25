@@ -50,7 +50,7 @@
   (rule->initial-dotted-rule
    (r/derives-to :WHOLE-GREETING
               [:GREETING " " :PARAGRAPH-BREAK]))
-  (r/grammar-symbol :GREETING))
+  (r/grammar-symbol :BLA))
  (r/grammar-symbol " "))
 
 
@@ -94,7 +94,7 @@
          (r/derives-to :PARAGRAPH-BREAK ["\n\n"])))
 
 (def some-recursive-derivations
-  (vector (r/derives-to :S [:S "a"])
+  (vector (r/derives-to :S ["a" :S])
           (r/derives-to :S ["a"])))
 
 (defn expand-dotted-rule
@@ -104,13 +104,16 @@
                     (filter #(= (:next-child some-dotted-rule) (:mother %))
                             list-of-derivations))))
 
+(def expand-dotted-rule-memo
+  "memoized version of expand-dotted-rule"
+  (memoize expand-dotted-rule))
 
 (defn generate-dotted-rule-set
   "generates a set of dotted rules by full expansion of a given list of dotted rules"
   [some-dotted-rules list-of-derivations]
   (loop [rules-left some-dotted-rules
-         expansions-so-far #{}]
-    (let [expansion (expand-dotted-rule (first rules-left) list-of-derivations)]
+         expansions-so-far (apply hash-set some-dotted-rules)]
+    (let [expansion (expand-dotted-rule-memo (first rules-left) list-of-derivations)]
       (if (empty? rules-left)
         expansions-so-far
         (if (every? expansions-so-far expansion)
@@ -124,7 +127,39 @@
     (r/derives-to :WHOLE-GREETING [:GREETING :WHITE-SPACE :PARAGRAPH-BREAK]))]
   some-greeting-derivations)
 
+
+(defn get-next-kernel
+  "update a dotted rule set when seeing some token to create a kernel for some next state"
+  [dotted-rule-set token]
+  (filter #(not (contains? dotted-rule-set %))
+          (map #(update-dotted-rule % token)
+               dotted-rule-set)))
+
 (generate-dotted-rule-set
-  [(rule->initial-dotted-rule
-    (r/derives-to :S [:S "a"]))]
+  (get-next-kernel
+      (generate-dotted-rule-set
+        [(rule->initial-dotted-rule
+          (r/derives-to :S ["a" :S]))
+         (rule->initial-dotted-rule
+           (r/derives-to :S ["a"]))]
+        some-recursive-derivations)
+      (r/grammar-symbol "a"))
   some-recursive-derivations)
+
+(defn update-dotted-rule-set
+  "update dotted rule set after seeing some token"
+  [dotted-rule-set list-of-derivations token]
+  (generate-dotted-rule-set
+    (get-next-kernel dotted-rule-set
+                     token)
+    list-of-derivations))
+
+(update-dotted-rule-set
+  (generate-dotted-rule-set
+    [(rule->initial-dotted-rule
+      (r/derives-to :S ["a" :S]))
+     (rule->initial-dotted-rule
+       (r/derives-to :S ["a"]))]
+    some-recursive-derivations)
+  some-recursive-derivations
+  (r/grammar-symbol "a"))
