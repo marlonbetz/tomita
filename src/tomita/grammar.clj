@@ -1,5 +1,6 @@
 (ns tomita.grammar
-  (:require [tomita.rules :as r]))
+  (:require [tomita.rules :as r]
+            [clojure.pprint :as pprint]))
 
 
 
@@ -31,9 +32,6 @@
                []
                (:children rule)))
 
-(rule->initial-dotted-rule
- (r/derives-to :WHOLE-GREETING
-             [:GREETING " " :PARAGRAPH-BREAK]))
 
 (defn update-dotted-rule
   "returns updated dotted rule when seeing one token"
@@ -45,13 +43,6 @@
      (:children-left old-dotted-rule))
     old-dotted-rule))
 
-(update-dotted-rule
- (update-dotted-rule
-  (rule->initial-dotted-rule
-   (r/derives-to :WHOLE-GREETING
-              [:GREETING " " :PARAGRAPH-BREAK]))
-  (r/grammar-symbol :BLA))
- (r/grammar-symbol " "))
 
 
 
@@ -93,9 +84,19 @@
          (r/derives-to :PARAGRAPH-BREAK [":"])
          (r/derives-to :PARAGRAPH-BREAK ["\n\n"])))
 
+(def some-simple-derivations
+  (vector (r/derives-to :S [:C :S])
+          (r/derives-to :S [:C])
+          (r/derives-to :C [:A :B])
+          (r/derives-to :A ["a"])
+          (r/derives-to :B ["b"])))
+
+
 (def some-recursive-derivations
   (vector (r/derives-to :S ["a" :S])
-          (r/derives-to :S ["a"])))
+          (r/derives-to :S ["b" :S])
+          (r/derives-to :S ["a"])
+          (r/derives-to :S ["b"])))
 
 (defn expand-dotted-rule
   "expands a given dotted rule by one level"
@@ -117,34 +118,23 @@
       (if (empty? rules-left)
         expansions-so-far
         (if (every? expansions-so-far expansion)
-          (recur (rest rules-left)
+          (recur
+                 (rest rules-left)
                  expansions-so-far)
           (recur (apply conj (rest rules-left) expansion)
                  (apply conj expansions-so-far expansion)))))))
 
-(generate-dotted-rule-set
-  [(rule->initial-dotted-rule
-    (r/derives-to :WHOLE-GREETING [:GREETING :WHITE-SPACE :PARAGRAPH-BREAK]))]
-  some-greeting-derivations)
 
 
 (defn get-next-kernel
-  "update a dotted rule set when seeing some token to create a kernel for some next state"
+  "update a dotted rule set when seeing some token
+   to create a kernel for some next state"
   [dotted-rule-set token]
   (filter #(not (contains? dotted-rule-set %))
-          (map #(update-dotted-rule % token)
-               dotted-rule-set)))
+    (map #(update-dotted-rule % token)
+         dotted-rule-set)))
 
-(generate-dotted-rule-set
-  (get-next-kernel
-      (generate-dotted-rule-set
-        [(rule->initial-dotted-rule
-          (r/derives-to :S ["a" :S]))
-         (rule->initial-dotted-rule
-           (r/derives-to :S ["a"]))]
-        some-recursive-derivations)
-      (r/grammar-symbol "a"))
-  some-recursive-derivations)
+
 
 (defn update-dotted-rule-set
   "update dotted rule set after seeing some token"
@@ -154,12 +144,81 @@
                      token)
     list-of-derivations))
 
-(update-dotted-rule-set
+(defn get-next-possible-symbols
+  "returs set of next possible symbols"
+  [dotted-rule-set]
+  (into #{}
+    (filter #(not= nil %)
+       (map :next-child dotted-rule-set))))
+
+
+(defn get-next-states
+  "returns a map of symbols to next states"
+  [dotted-rule-set list-of-derivations]
+  (reduce
+    #(assoc
+      %1
+      %2
+      (let [updated-set (update-dotted-rule-set dotted-rule-set list-of-derivations %2)]
+        (if (empty? updated-set)
+          dotted-rule-set
+          updated-set)))
+    {}
+    (get-next-possible-symbols dotted-rule-set)))
+
+
+(defn fsa-state-table-entry
+  "simple state table entry"
+  [dotted-rules symbol->next-state]
+  {:dotted-rules dotted-rules
+   :symbol->next-state symbol->next-state})
+
+(defn dotted-rule-set->fsa-state-table-entry
+  "creates transitions from one state to another"
+  [dotted-rule-set list-of-derivations]
+  (let [generated-set (generate-dotted-rule-set
+                        dotted-rule-set
+                        list-of-derivations)
+        next-state-map (get-next-states generated-set list-of-derivations)]
+    (fsa-state-table-entry generated-set next-state-map)))
+
+(defn create-state-table
+  "Creates simple table mapping fron one state via some symbol to another state"
+  [initial-dotted-rule-set list-of-derivations]
+  (loop [dotted-rule-sets-left [initial-dotted-rule-set]
+         table-so-far #{}]
+    (if
+      (empty? dotted-rule-sets-left)
+      table-so-far
+      (let [current-rule-set (first dotted-rule-sets-left)
+            next-entry (dotted-rule-set->fsa-state-table-entry
+                         current-rule-set
+                         list-of-derivations)]
+        (if (contains? table-so-far next-entry)
+          (recur (rest dotted-rule-sets-left) table-so-far)
+          (recur (apply conj
+                        (rest dotted-rule-sets-left)
+                        (vals (:symbol->next-state next-entry)))
+                 (conj table-so-far next-entry)))))))
+
+
+(get-next-states
+  (get
+    (get-next-states
+      (generate-dotted-rule-set
+        [(rule->initial-dotted-rule
+          (r/derives-to :START [:S]))]
+        some-recursive-derivations)
+      some-recursive-derivations)
+   {:surface "a", :terminal? true})
+  some-recursive-derivations)
+
+
+
+
+(create-state-table
   (generate-dotted-rule-set
     [(rule->initial-dotted-rule
-      (r/derives-to :S ["a" :S]))
-     (rule->initial-dotted-rule
-       (r/derives-to :S ["a"]))]
+      (r/derives-to :START [:S]))]
     some-recursive-derivations)
-  some-recursive-derivations
-  (r/grammar-symbol "a"))
+  some-recursive-derivations)
