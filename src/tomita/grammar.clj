@@ -202,6 +202,7 @@
                  (conj table-so-far next-entry)))))))
 
 
+
 (get-next-states
   (get
     (get-next-states
@@ -216,9 +217,52 @@
 
 
 
-(create-state-table
-  (generate-dotted-rule-set
-    [(rule->initial-dotted-rule
-      (r/derives-to :START [:S]))]
-    some-recursive-derivations)
-  some-recursive-derivations)
+
+(defn contains-initially?
+  "check if a dotted rules set contains some token as next child"
+  [dotted-rules token]
+  (some?
+    (some #(and (= (:next-child %) token))
+          dotted-rules)))
+
+;;TODO
+(defn contains-last-processed?
+  "check if a dotted rules set contains some fully reduced token"
+  [dotted-rules token]
+  (some?
+    (some #(= (last (:processed-children %)) token)
+      dotted-rules)))
+
+
+(defn first-set
+  "created set of initial terminals of a given non-terminal"
+  [state-table token]
+  (if (:terminal? token)
+    '()
+    (filter #(:terminal? %)
+     (into #{}
+       (mapcat #(keys (:symbol->next-state %))
+         (filter #(contains-initially? (:dotted-rules %) token)
+           state-table))))))
+
+;;TODO
+(defn follow-set
+  "created set of terminals following a given non-terminal"
+  [state-table token]
+  (if (:terminal? token)
+    '()
+    (filter #(:terminal? %)
+     (into #{}
+       (mapcat #(keys (:symbol->next-state %))
+         (filter #(contains-last-processed? (:dotted-rules %) token)
+                 state-table))))))
+
+
+(first-set
+  (create-state-table
+    (generate-dotted-rule-set
+      [(rule->initial-dotted-rule
+        (r/derives-to :START [:S]))]
+      some-simple-derivations)
+    some-simple-derivations)
+  (r/grammar-symbol :S))
