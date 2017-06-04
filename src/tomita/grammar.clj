@@ -85,7 +85,8 @@
          (r/derives-to :PARAGRAPH-BREAK ["\n\n"])))
 
 (def some-simple-derivations
-  (vector (r/derives-to :S [:C :S])
+  (vector (r/derives-to ::START [:S ::EOF])
+          (r/derives-to :S [:C :S])
           (r/derives-to :S [:C])
           (r/derives-to :C [:A :B])
           (r/derives-to :A ["a"])
@@ -93,7 +94,8 @@
 
 
 (def some-recursive-derivations
-  (vector (r/derives-to :S ["a" :S])
+  (vector (r/derives-to ::START [:S ::EOF])
+          (r/derives-to :S ["a" :S])
           (r/derives-to :S ["b" :S])
           (r/derives-to :S ["a"])
           (r/derives-to :S ["b"])))
@@ -227,11 +229,19 @@
 
 ;;TODO
 (defn contains-last-processed?
-  "check if a dotted rules set contains some fully reduced token"
+  "check if a dotted rules set contains some token as the last one processed"
   [dotted-rules token]
   (some?
     (some #(= (last (:processed-children %)) token)
       dotted-rules)))
+
+(defn fully-reduced?
+  "true if some dotted rule is fully reduced"
+  [dotted-rule]
+  ((complement some?) (:next-child dotted-rule)))
+
+
+
 
 
 (defn first-set
@@ -245,9 +255,8 @@
          (filter #(contains-initially? (:dotted-rules %) token)
            state-table))))))
 
-;;TODO
-(defn follow-set
-  "created set of terminals following a given non-terminal"
+(defn direct-follow-set
+  "created set of terminals following a given non-terminal inside of a rule"
   [state-table token]
   (if (:terminal? token)
     '()
@@ -258,11 +267,32 @@
                  state-table))))))
 
 
-(first-set
+(direct-follow-set
   (create-state-table
     (generate-dotted-rule-set
       [(rule->initial-dotted-rule
-        (r/derives-to :START [:S]))]
+        (r/derives-to ::START [:S ::EOF]))]
       some-simple-derivations)
     some-simple-derivations)
-  (r/grammar-symbol :S))
+  (r/grammar-symbol :C))
+
+
+
+
+(def some-state-table
+  (create-state-table
+    (generate-dotted-rule-set
+      [(rule->initial-dotted-rule
+        (r/derives-to ::START [:S ::EOF]))]
+      some-simple-derivations)
+    some-simple-derivations))
+
+;;one level up the derivation
+(direct-follow-set
+  some-state-table
+  ;identity because of list of tokens!
+  (apply identity (map :mother
+                    (filter fully-reduced?
+                      (mapcat :dotted-rules
+                        (filter #(contains-last-processed? (:dotted-rules %) (r/grammar-symbol :B))
+                              some-state-table))))))
